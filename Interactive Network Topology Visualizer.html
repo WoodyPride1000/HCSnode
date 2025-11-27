@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HCS トポロジー管理ダッシュボード</title>
+    <title>HCS Topology Manager Dashboard</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,35 +11,41 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- Google Fonts (Noto Sans JP) -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-    <!-- Chosen Palette: Technical Blue & Slate (Clean, Professional, Engineering-focused) -->
+    <!-- Chosen Palette: Technical Slate & Electric Blue -->
     <!-- Application Structure Plan: 
-         1. Header: System overview based on Section 1.
-         2. Topology Visualizer (Canvas): Interactive node map representing the concepts in Section 1 and 2. Users select nodes to view PeerState.
-         3. Scoring Algorithm Lab: Interactive sliders implementing the formula in Section 3.1. Visualized with Chart.js.
-         4. Logic & Data Reference: Cards explaining HandleAdvertise and HealthCheck (Section 3.2, 3.3) and Data Structures (Section 4).
-         This structure moves from the high-level network view down to the specific algorithmic logic, facilitating understanding of the system's "Brain".
+         1. Header: System Identity and Navigation.
+         2. Interactive Topology Visualizer: A custom HTML5 Canvas implementation to visualize Node Relationships, Parent Selection, and Groups (Section 1 & 2). Allows Dragging and Clicking.
+         3. Score Algorithm Lab: An interactive section to simulate the ComputeNodeScore logic (Section 3.1), visualizing the impact of Control RTT vs App RTT penalties using Chart.js.
+         4. Logic & Data Reference: Structured cards detailing NodeMetrics, PeerState, and Operational Logic (Section 3.2, 3.3).
     -->
     <!-- Visualization & Content Choices: 
-         Report Info -> Goal -> Viz/Presentation Method -> Interaction -> Justification -> Library/Method
-         1. Network topology and node relationships -> Visualize Parent Node Selection -> HTML5 Canvas Graph + Sidebar Detail Panel -> Click nodes to inspect specific data -> Static image is insufficient for dynamic relationships -> Canvas/Vanilla JS
-         2. Section 3.1 Score Calculation Logic -> Explain prioritization logic -> Interactive Sliders + Real-time Chart.js Bar Chart -> Sliders update score and chart immediately -> Formula complexity requires intuitive exploration of weighting -> Chart.js/Vanilla JS
-         3. Data Structures and Processes (Section 2, 3.2, 3.3) -> Reference Material -> Styled Cards/Tables -> None (Information Display) -> Clear, structured text for reference data -> Tailwind/HTML
+         - Topology Map: Canvas is used for high-performance rendering of network nodes. It clarifies the "Parent vs Candidate" relationship visually.
+         - Scoring Chart: Chart.js Bar chart helps users visualize the "Weighting" of different metrics (e.g., BW vs RTT) defined in the math formula.
+         - Metrics Panel: Uses progress bars to visualize raw metric values against their theoretical maxes.
     -->
     <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
 
     <style>
         body {
-            font-family: 'Noto Sans JP', sans-serif;
-            background-color: #f8fafc; /* Slate 50 */
-            color: #1e293b; /* Slate 800 */
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* Slate 100 */
+            color: #0f172a; /* Slate 900 */
         }
+        h1, h2, h3, h4 {
+            letter-spacing: -0.025em;
+        }
+        code, .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        /* Chart Container Styling Rules */
         .chart-container {
             position: relative;
             width: 100%;
-            max-width: 600px;
+            max-width: 100%;
             height: 300px;
             max-height: 400px;
             margin-left: auto;
@@ -50,338 +56,370 @@
                 height: 350px;
             }
         }
-        /* Custom scrollbar for data panels */
-        .data-panel::-webkit-scrollbar {
+
+        /* Custom Canvas Cursor */
+        canvas#topologyCanvas {
+            cursor: default;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Scrollbar for panels */
+        .custom-scroll::-webkit-scrollbar {
             width: 6px;
+            height: 6px;
         }
-        .data-panel::-webkit-scrollbar-track {
-            background: #f1f5f9; 
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
         }
-        .data-panel::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #94a3b8;
             border-radius: 3px;
         }
-        /* カーソル設定はJSで動的に行う */
-        canvas#topologyCanvas {
-            /* 常にデフォルトを設定し、JSで上書き */
-            cursor: default; 
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
         }
     </style>
 </head>
-<body class="flex flex-col min-h-screen">
+<body class="flex flex-col min-h-screen text-slate-800">
 
-    <!-- Header Section -->
-    <header class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-50">
-        <div class="container mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center">
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-slate-200 sticky top-0 z-50 backdrop-blur-md bg-opacity-90">
+        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-md">H</div>
+                <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-lg shadow-blue-600/30">H</div>
                 <div>
-                    <h1 class="text-xl font-bold text-slate-800">HCS Topology Manager</h1>
-                    <p class="text-xs text-slate-500">Hybrid Communication System / 自律分散制御層</p>
+                    <h1 class="font-bold text-sm leading-tight">HCS Topology Manager</h1>
+                    <p class="text-[10px] text-slate-500 font-mono uppercase">Hybrid Communication System</p>
                 </div>
             </div>
-            <nav class="mt-4 md:mt-0">
-                <ul class="flex gap-6 text-sm font-medium text-slate-600">
-                    <li><a href="#visualizer" class="hover:text-blue-600 transition">ネットワーク可視化</a></li>
-                    <li><a href="#algorithm" class="hover:text-blue-600 transition">スコア計算ロジック</a></li>
-                    <li><a href="#reference" class="hover:text-blue-600 transition">データ構造</a></li>
-                </ul>
-            </nav>
+            <div class="hidden md:flex gap-6 text-sm font-medium text-slate-600">
+                <a href="#topology" class="hover:text-blue-600 transition">Network Map</a>
+                <a href="#scoring" class="hover:text-blue-600 transition">Scoring Algorithm</a>
+                <a href="#specs" class="hover:text-blue-600 transition">Specs & Logic</a>
+            </div>
         </div>
-    </header>
+    </nav>
 
     <main class="flex-grow container mx-auto px-4 py-8 space-y-12">
 
-        <!-- Introduction -->
-        <section class="max-w-4xl mx-auto text-center">
-            <h2 class="text-3xl font-bold text-slate-800 mb-4">トポロジー管理システムの概要</h2>
-            <p class="text-lg text-slate-600 leading-relaxed">
-                HCS（Hybrid Communication System）におけるノード間のピアディスカバリ、動的な経路選定、およびヘルスチェックを担うシステムのインタラクティブな解説です。
-                このシステムは、帯域幅、遅延、ホップ数などの複合的なメトリクスを用いて、最適な親ノードを自律的に選定し、通信障害時には迅速なフェイルオーバーを実現します。
+        <!-- Intro -->
+        <section class="text-center max-w-3xl mx-auto mb-12">
+            <h2 class="text-3xl font-bold mb-4 text-slate-900">自律分散トポロジー制御</h2>
+            <p class="text-slate-600 leading-relaxed">
+                HCSにおけるノード間の最適な経路選定と障害検知を可視化するダッシュボードです。
+                <span class="font-semibold text-blue-600">制御プレーン</span>と<span class="font-semibold text-orange-500">アプリケーションプレーン</span>のRTTを分離し、QoS環境下でも正確な親ノード選定を実現します。
             </p>
         </section>
 
-        <!-- Visualization Section -->
-        <section id="visualizer" class="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-            <div class="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+        <!-- 1. Interactive Topology Visualizer -->
+        <!-- Context: Implements the concepts from Section 1 and 2.2 (PeerState). -->
+        <section id="topology" class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div class="border-b border-slate-100 p-6 flex flex-col md:flex-row justify-between items-center bg-slate-50">
                 <div>
-                    <h3 class="text-lg font-bold text-slate-800">ネットワーク・トポロジー・シミュレーター</h3>
-                    <p class="text-sm text-slate-500">ノードをクリックして `PeerState` と `NodeMetrics` を確認してください。</p>
+                    <h3 class="text-lg font-bold text-slate-800">Network Topology Visualizer</h3>
+                    <p class="text-xs text-slate-500 mt-1">Drag nodes to rearrange. Click nodes to inspect metrics.</p>
                 </div>
-                <div class="flex gap-2">
-                    <span class="flex items-center text-xs text-slate-600"><span class="w-3 h-3 rounded-full bg-blue-500 mr-1"></span> 自ノード</span>
-                    <span class="flex items-center text-xs text-slate-600"><span class="w-3 h-3 rounded-full bg-slate-400 mr-1"></span> 親候補</span>
-                    <span class="flex items-center text-xs text-slate-600"><span class="w-3 h-3 rounded-full bg-emerald-500 mr-1"></span> 現在の親</span>
+                <div class="flex gap-4 mt-4 md:mt-0 text-xs font-medium">
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-600"></span> Self (Me)</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500"></span> Parent Node</div>
+                    <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-slate-400"></span> Candidate</div>
                 </div>
             </div>
-            
-            <div class="flex flex-col lg:flex-row h-[600px]">
-                <!-- Canvas Area -->
-                <div class="relative w-full lg:w-2/3 bg-slate-100 flex items-center justify-center overflow-hidden">
-                    <canvas id="topologyCanvas" class="w-full h-full"></canvas>
-                    <div class="absolute bottom-4 left-4 bg-white/90 backdrop-blur p-2 rounded shadow text-xs text-slate-600">
-                        <p>クリック: 詳細表示</p>
-                        <p>ドラッグ: ノード移動</p>
+
+            <div class="flex flex-col lg:flex-row h-[650px]">
+                <!-- Canvas -->
+                <div class="relative w-full lg:w-2/3 h-full bg-slate-100">
+                    <canvas id="topologyCanvas" class="w-full h-full block"></canvas>
+                    <div class="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-2 rounded border border-slate-200 shadow-sm text-xs text-slate-600 font-mono">
+                        Nodes: 5<br>Active Parent: Node B
                     </div>
                 </div>
 
                 <!-- Detail Panel -->
-                <div class="w-full lg:w-1/3 border-l border-slate-200 bg-white p-6 overflow-y-auto data-panel">
-                    <div id="nodeDetailsEmpty" class="h-full flex flex-col items-center justify-center text-slate-400">
-                        <svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        <p>マップ上のノードを選択してください</p>
+                <div class="w-full lg:w-1/3 bg-white border-l border-slate-200 p-6 overflow-y-auto custom-scroll">
+                    <div id="emptyState" class="h-full flex flex-col items-center justify-center text-slate-400 text-center opacity-60">
+                        <div class="w-16 h-16 mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+                            <span class="text-2xl">⚡</span>
+                        </div>
+                        <p class="text-sm font-medium">Select a node to view details</p>
                     </div>
 
-                    <div id="nodeDetailsContent" class="hidden space-y-6">
+                    <div id="detailContent" class="hidden space-y-6">
+                        <!-- Header -->
                         <div>
-                            <span class="text-xs font-bold text-blue-600 uppercase tracking-wide">選択ノード</span>
-                            <h4 class="text-2xl font-bold text-slate-800" id="detailIp">192.168.1.X</h4>
-                            <div class="mt-2 flex gap-2">
-                                <span id="detailIsParent" class="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium">候補ノード</span>
-                                <span id="detailGroup" class="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium">Group: A</span>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Peer State</span>
+                                <span id="nodeRoleBadge" class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600">Candidate</span>
                             </div>
+                            <h2 id="nodeIp" class="text-2xl font-bold text-slate-800 font-mono">192.168.1.X</h2>
+                            <p class="text-xs text-slate-500 mt-1">Group: <span id="nodeGroup" class="font-mono text-slate-700">Public</span></p>
                         </div>
 
-                        <!-- Score Display -->
-                        <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                            <p class="text-xs text-blue-600 mb-1 font-semibold">総合評価スコア (ComputeNodeScore)</p>
-                            <div class="text-3xl font-bold text-blue-800" id="detailScore">--</div>
-                            <p class="text-xs text-blue-400 mt-1">高いほど親ノードに適しています</p>
+                        <!-- Total Score -->
+                        <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl text-center">
+                            <div class="text-xs text-blue-600 font-semibold mb-1">COMPUTED SCORE</div>
+                            <div id="nodeScore" class="text-4xl font-bold text-blue-700">--</div>
                         </div>
 
-                        <!-- Metrics Table -->
-                        <div>
-                            <h5 class="text-sm font-bold text-slate-700 mb-3 border-b border-slate-100 pb-2">NodeMetrics (評価基準)</h5>
-                            <div class="space-y-3 text-sm">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-slate-500">Hop Count</span>
-                                    <span class="font-mono font-medium" id="detailHop">--</span>
+                        <!-- Metrics Breakdown -->
+                        <div class="space-y-4">
+                            <h4 class="text-sm font-bold text-slate-700 border-b border-slate-100 pb-2">NodeMetrics Breakdown</h4>
+                            
+                            <!-- Metric Item -->
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-600">Hop Count (Lower is better)</span>
+                                    <span id="valHop" class="font-mono font-bold">0</span>
                                 </div>
-                                <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                    <div id="barHop" class="h-full bg-slate-400" style="width: 0%"></div>
+                                <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="barHop" class="h-full bg-red-400" style="width: 0%"></div>
                                 </div>
+                            </div>
 
-                                <div class="flex justify-between items-center mt-2">
-                                    <span class="text-slate-500">Bandwidth Score</span>
-                                    <span class="font-mono font-medium" id="detailBw">--</span>
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-600">Bandwidth Score (Higher is better)</span>
+                                    <span id="valBw" class="font-mono font-bold">0</span>
                                 </div>
-                                <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                                     <div id="barBw" class="h-full bg-blue-500" style="width: 0%"></div>
                                 </div>
+                            </div>
 
-                                <div class="flex justify-between items-center mt-2">
-                                    <span class="text-slate-500">Stability Score</span>
-                                    <span class="font-mono font-medium" id="detailStab">--</span>
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-600">Stability Score (Higher is better)</span>
+                                    <span id="valStab" class="font-mono font-bold">0</span>
                                 </div>
-                                <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                    <div id="barStability" class="h-full bg-emerald-500" style="width: 0%"></div>
+                                <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="barStab" class="h-full bg-emerald-500" style="width: 0%"></div>
                                 </div>
+                            </div>
 
-                                <div class="flex justify-between items-center mt-2">
-                                    <span class="text-slate-500">RTT (ms)</span>
-                                    <span class="font-mono font-medium" id="detailRtt">--</span>
+                            <!-- Split RTTs -->
+                            <div class="pt-2 border-t border-dashed border-slate-200">
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-600 flex items-center gap-1">
+                                        <span class="w-2 h-2 rounded-full bg-rose-500"></span> Control RTT
+                                    </span>
+                                    <span id="valCRtt" class="font-mono font-bold">0 ms</span>
                                 </div>
-                                <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                    <div id="barRtt" class="h-full bg-rose-400" style="width: 0%"></div>
+                                <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="barCRtt" class="h-full bg-rose-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="text-slate-600 flex items-center gap-1">
+                                        <span class="w-2 h-2 rounded-full bg-orange-400"></span> App RTT
+                                    </span>
+                                    <span id="valARtt" class="font-mono font-bold">0 ms</span>
+                                </div>
+                                <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="barARtt" class="h-full bg-orange-400" style="width: 0%"></div>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Last Advertise -->
-                        <div class="pt-4 border-t border-slate-100">
-                            <div class="flex justify-between text-xs">
-                                <span class="text-slate-400">Last Advertise Time</span>
-                                <span class="font-mono text-slate-600" id="detailTime">--:--:--</span>
-                            </div>
+                        
+                        <div class="text-[10px] text-slate-400 text-right pt-4">
+                            Last Advertise: <span id="valLastAdv" class="font-mono">--</span>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Algorithm Section -->
-        <section id="algorithm" class="grid lg:grid-cols-2 gap-8 items-start">
-            <div>
-                <h3 class="text-2xl font-bold text-slate-800 mb-4">3.1. スコア計算アルゴリズム</h3>
-                <p class="text-slate-600 mb-6">
-                    親ノード選定の基準となるスコア計算式です。以下のスライダーを操作して、各メトリクスが総合スコアに与える影響を確認してください。
-                </p>
-                
-                <div class="bg-white p-6 rounded-xl shadow-md border border-slate-200 space-y-6">
-                    <!-- Formula Display -->
-                    <div class="bg-slate-50 p-4 rounded-lg font-mono text-xs md:text-sm text-slate-700 overflow-x-auto whitespace-nowrap mb-6 border border-slate-200">
-                        Score = 1000 - (Hop*10) + (BW*5) + (Stability*2) - (RTT*0.1)
+        <!-- 2. Scoring Algorithm Laboratory -->
+        <!-- Context: Implements the formula in Section 3.1, visualizing the penalty logic. -->
+        <section id="scoring" class="grid lg:grid-cols-12 gap-8">
+            
+            <!-- Formula & Controls -->
+            <div class="lg:col-span-5 space-y-6">
+                <div>
+                    <h3 class="text-2xl font-bold text-slate-800">3.1. Algorithm Lab</h3>
+                    <p class="text-sm text-slate-500 mt-2">
+                        スコア計算ロジックのシミュレーションです。QoS環境下での誤差を吸収するため、RTTを制御用とアプリ用で分離しています。
+                    </p>
+                </div>
+
+                <div class="bg-slate-800 text-slate-200 p-4 rounded-lg font-mono text-xs leading-relaxed overflow-x-auto">
+                    Score = 1000 
+                    <span class="text-red-400">- (Hop * 10)</span>
+                    <span class="text-blue-400">+ (BW * 5)</span>
+                    <span class="text-emerald-400">+ (Stab * 2)</span>
+                    <br>
+                    <span class="text-rose-400 pl-12">- (C_RTT * 0.1)</span>
+                    <span class="text-orange-400">- (A_RTT * 0.05)</span>
+                </div>
+
+                <!-- Sliders -->
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-5">
+                    <!-- Hop -->
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+                            <span>Hop Count</span>
+                            <span id="lblHop">2</span>
+                        </div>
+                        <input type="range" id="inHop" min="0" max="20" value="2" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-500">
                     </div>
-
-                    <!-- Sliders -->
-                    <div class="space-y-4">
-                        <div>
-                            <div class="flex justify-between mb-1">
-                                <label class="text-sm font-bold text-slate-700">Hop Count (ホップ数)</label>
-                                <span class="text-sm font-mono text-slate-600" id="valHop">2</span>
-                            </div>
-                            <input type="range" id="inputHop" min="0" max="20" value="2" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-rose-500">
-                            <p class="text-xs text-slate-400">少ない方が良い (減点対象)</p>
+                    <!-- BW -->
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+                            <span>Bandwidth Score</span>
+                            <span id="lblBw">80</span>
                         </div>
-
-                        <div>
-                            <div class="flex justify-between mb-1">
-                                <label class="text-sm font-bold text-slate-700">Bandwidth Score (帯域幅)</label>
-                                <span class="text-sm font-mono text-slate-600" id="valBw">80</span>
-                            </div>
-                            <input type="range" id="inputBw" min="0" max="100" value="80" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
-                            <p class="text-xs text-slate-400">高い方が良い (加点対象)</p>
+                        <input type="range" id="inBw" min="0" max="100" value="80" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                    </div>
+                    <!-- Stability -->
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+                            <span>Stability Score</span>
+                            <span id="lblStab">90</span>
                         </div>
-
-                        <div>
-                            <div class="flex justify-between mb-1">
-                                <label class="text-sm font-bold text-slate-700">Stability Score (安定性)</label>
-                                <span class="text-sm font-mono text-slate-600" id="valStab">90</span>
-                            </div>
-                            <input type="range" id="inputStab" min="0" max="100" value="90" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-500">
-                            <p class="text-xs text-slate-400">高い方が良い (加点対象)</p>
+                        <input type="range" id="inStab" min="0" max="100" value="90" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                    </div>
+                    <!-- Control RTT -->
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+                            <span class="flex items-center gap-1"><span class="w-2 h-2 bg-rose-500 rounded-full"></span> Control RTT (ms)</span>
+                            <span id="lblCRtt">50</span>
                         </div>
-
-                        <div>
-                            <div class="flex justify-between mb-1">
-                                <label class="text-sm font-bold text-slate-700">RTT (ms)</label>
-                                <span class="text-sm font-mono text-slate-600" id="valRtt">50</span>
-                            </div>
-                            <input type="range" id="inputRtt" min="0" max="1500" value="50" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-rose-500">
-                            <p class="text-xs text-slate-400">低い方が良い (減点対象, >1000msでペナルティ)</p>
+                        <input type="range" id="inCRtt" min="0" max="1500" value="50" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-rose-500">
+                        <p class="text-[10px] text-slate-400 mt-1">>1000ms triggers -500 penalty</p>
+                    </div>
+                    <!-- App RTT -->
+                    <div>
+                        <div class="flex justify-between text-xs font-bold text-slate-600 mb-2">
+                            <span class="flex items-center gap-1"><span class="w-2 h-2 bg-orange-400 rounded-full"></span> App RTT (ms)</span>
+                            <span id="lblARtt">50</span>
                         </div>
+                        <input type="range" id="inARtt" min="0" max="1500" value="50" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500">
+                         <p class="text-[10px] text-slate-400 mt-1">>1000ms triggers -100 penalty</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Visualization -->
-            <div class="bg-white p-6 rounded-xl shadow-md border border-slate-200 h-full flex flex-col justify-center items-center">
-                <div class="text-center mb-6">
-                    <span class="text-sm text-slate-500 font-medium">算出された総合スコア</span>
-                    <!-- 修正済み: 初期値はJSで設定されるため空欄 (--) -->
-                    <div class="text-5xl font-bold text-blue-600 mt-2" id="calcResult">--</div>
-                    <div id="penaltyBadge" class="hidden mt-2 inline-block px-2 py-1 bg-red-100 text-red-600 text-xs font-bold rounded">RTT Penalty Applied (-500)</div>
+            <!-- Real-time Chart -->
+            <div class="lg:col-span-7 flex flex-col">
+                <div class="bg-white p-6 rounded-xl shadow-md border border-slate-200 flex-grow flex flex-col items-center justify-center">
+                    <div class="w-full text-center mb-6">
+                        <div class="text-sm text-slate-500 font-semibold tracking-wider uppercase">Total Score</div>
+                        <div id="calcScore" class="text-6xl font-black text-slate-800 tracking-tighter">--</div>
+                        <div class="h-6 mt-2 flex gap-2 justify-center">
+                            <span id="badgeCPenalty" class="hidden px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded uppercase tracking-wide border border-red-200">Critical Control Lag</span>
+                            <span id="badgeAPenalty" class="hidden px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded uppercase tracking-wide border border-orange-200">App Lag</span>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-container">
+                        <canvas id="scoreChart"></canvas>
+                    </div>
                 </div>
-                
-                <div class="chart-container">
-                    <canvas id="scoreChart"></canvas>
-                </div>
-                <p class="text-xs text-slate-400 mt-4 text-center">各要素のスコアへの寄与度（プラス要因とマイナス要因）</p>
             </div>
         </section>
 
-        <!-- Reference Section -->
-        <section id="reference" class="space-y-8">
-            <div class="grid md:grid-cols-2 gap-8">
-                <!-- Data Structures -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center">
-                        <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
-                        内部データ構造
-                    </h3>
-                    <div class="space-y-4">
-                        <div class="p-3 bg-slate-50 rounded border border-slate-100">
-                            <h4 class="font-bold text-slate-700 text-sm mb-2">PeerState (近隣ノードの状態)</h4>
-                            <ul class="text-xs text-slate-600 space-y-1 list-disc list-inside">
-                                <li><strong>metrics</strong>: NodeMetrics (最新の品質データ)</li>
-                                <li><strong>ip_address</strong>: ノードIP (std::string)</li>
-                                <li><strong>score</strong>: 算出済みスコア (double)</li>
-                                <li><strong>is_parent</strong>: 現在の親かどうか (bool)</li>
-                                <li><strong>last_advertise_time</strong>: タイムアウト判定用</li>
-                            </ul>
-                        </div>
-                        <div class="p-3 bg-slate-50 rounded border border-slate-100">
-                            <h4 class="font-bold text-slate-700 text-sm mb-2">AdvertiseMessage (通知)</h4>
-                            <ul class="text-xs text-slate-600 space-y-1 list-disc list-inside">
-                                <li>ピアディスカバリに使用</li>
-                                <li>IPアドレス, Metrics, 所属グループを含む</li>
-                            </ul>
-                        </div>
-                    </div>
+        <!-- 3. Specs & Logic Reference -->
+        <section id="specs" class="grid md:grid-cols-3 gap-6">
+            <!-- PeerState Card -->
+            <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div class="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center mb-4 text-indigo-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                 </div>
+                <h4 class="font-bold text-slate-800 mb-2">PeerState</h4>
+                <p class="text-xs text-slate-500 mb-4">Local cache of neighbor node status.</p>
+                <ul class="text-xs space-y-2 text-slate-700 font-mono">
+                    <li class="flex justify-between border-b border-slate-100 pb-1"><span>metrics</span> <span class="text-slate-400">NodeMetrics</span></li>
+                    <li class="flex justify-between border-b border-slate-100 pb-1"><span>score</span> <span class="text-slate-400">double</span></li>
+                    <li class="flex justify-between border-b border-slate-100 pb-1"><span>is_parent</span> <span class="text-slate-400">bool</span></li>
+                    <li class="flex justify-between"><span>last_adv_time</span> <span class="text-slate-400">time_point</span></li>
+                </ul>
+            </div>
 
-                <!-- Logic Flow -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <h3 class="text-xl font-bold text-slate-800 mb-4 flex items-center">
-                        <svg class="w-5 h-5 mr-2 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        運用ロジック
-                    </h3>
-                    <div class="space-y-4">
-                        <div>
-                            <h4 class="font-bold text-slate-700 text-sm">HandleAdvertise (広告受信)</h4>
-                            <p class="text-xs text-slate-500 mt-1">
-                                ADVERTISEメッセージを受信すると、`PeerState`を更新し、即座にスコアを再計算します。
-                                新しいスコアが現在の親より高ければ、`best_scores_` を更新し、経路を切り替えます。
-                            </p>
-                        </div>
-                        <div class="border-t border-slate-100 pt-3">
-                            <h4 class="font-bold text-slate-700 text-sm">CheckParentHealth (ヘルスチェック)</h4>
-                            <p class="text-xs text-slate-500 mt-1">
-                                定期的に実行。現在時刻と `last_advertise_time` の差分を計算します。
-                                差分が `failover_timeout_sec_` (デフォルト5秒) を超えた場合、障害とみなしフェイルオーバーを実行します。
-                            </p>
-                        </div>
-                    </div>
+            <!-- HandleAdvertise Card -->
+            <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center mb-4 text-emerald-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                </div>
+                <h4 class="font-bold text-slate-800 mb-2">HandleAdvertise</h4>
+                <p class="text-xs text-slate-500 mb-4">Triggered upon receiving multicast advertisement.</p>
+                <ol class="text-xs space-y-2 text-slate-700 list-decimal list-inside">
+                    <li>Update <code class="bg-slate-100 px-1 rounded">neighbor_nodes_</code> map.</li>
+                    <li>Calculate Score for each group.</li>
+                    <li>If <code class="bg-slate-100 px-1 rounded">new_score > current_best</code>, update <code class="bg-slate-100 px-1 rounded">best_scores_</code>.</li>
+                    <li>Trigger parent switch if necessary.</li>
+                </ol>
+            </div>
+
+            <!-- HealthCheck Card -->
+            <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div class="w-10 h-10 bg-rose-50 rounded-lg flex items-center justify-center mb-4 text-rose-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h4 class="font-bold text-slate-800 mb-2">CheckParentHealth</h4>
+                <p class="text-xs text-slate-500 mb-4">Periodic failover protection mechanism.</p>
+                <div class="text-xs bg-slate-50 p-2 rounded border border-slate-100 font-mono text-slate-600">
+                    elapsed = now - last_adv;<br>
+                    if (elapsed > 5s) {<br>
+                    &nbsp;&nbsp;is_parent = false;<br>
+                    &nbsp;&nbsp;TriggerFailover();<br>
+                    }
                 </div>
             </div>
         </section>
 
     </main>
 
-    <footer class="bg-slate-800 text-slate-400 py-8 mt-12">
-        <div class="container mx-auto px-4 text-center">
-            <p class="text-sm">HCS Topology Manager Design Visualization</p>
-            <p class="text-xs mt-2 opacity-60">Based on HCS_Topology_Design.md</p>
-        </div>
-    </footer>
-
-    <!-- Logic Script -->
+    <!-- JavaScript Implementation -->
     <script>
-        // --- 1. Topology Visualizer Logic ---
+        // ==========================================
+        // 1. Topology Visualizer Logic (Canvas)
+        // ==========================================
         const canvas = document.getElementById('topologyCanvas');
         const ctx = canvas.getContext('2d');
         let width, height;
         let selectedNodeId = null;
 
-        // Dragging state variables
+        // Drag State
         let isDragging = false;
         let dragNode = null;
-        let dragOffsetX, dragOffsetY;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        let mouseDownPos = null; // For click tolerance
+        const CLICK_TOLERANCE = 5;
 
-        // Mock Data for Visualization
+        // Mock Data
         const nodes = [
-            { id: 0, x: 0, y: 0, label: "自ノード (Me)", ip: "127.0.0.1", type: "self", metrics: { hop: 0, bw: 0, stab: 0, rtt: 0 }, score: 0 },
-            { id: 1, x: -100, y: -150, label: "Node A", ip: "192.168.1.10", type: "candidate", metrics: { hop: 2, bw: 80, stab: 90, rtt: 20 }, score: 0 },
-            { id: 2, x: 100, y: -120, label: "Node B", ip: "192.168.1.11", type: "parent", metrics: { hop: 1, bw: 95, stab: 95, rtt: 5 }, score: 0 },
-            { id: 3, x: 0, y: -250, label: "Node C", ip: "192.168.1.12", type: "candidate", metrics: { hop: 3, bw: 40, stab: 60, rtt: 150 }, score: 0 },
-            { id: 4, x: -150, y: -50, label: "Node D", ip: "192.168.1.13", type: "candidate", metrics: { hop: 2, bw: 70, stab: 80, rtt: 45 }, score: 0 },
+            { id: 0, x: 0, y: 0, label: "Me", ip: "127.0.0.1", type: "self", metrics: { hop: 0, bw: 0, stab: 0, crtt: 0, artt: 0 } },
+            { id: 1, x: 0, y: -150, label: "Parent A", ip: "192.168.1.50", type: "parent", metrics: { hop: 1, bw: 95, stab: 98, crtt: 5, artt: 10 } },
+            { id: 2, x: -120, y: -220, label: "Cand B", ip: "192.168.1.51", type: "candidate", metrics: { hop: 2, bw: 80, stab: 90, crtt: 15, artt: 40 } },
+            { id: 3, x: 120, y: -220, label: "Cand C", ip: "192.168.1.52", type: "candidate", metrics: { hop: 2, bw: 60, stab: 85, crtt: 40, artt: 60 } },
+            { id: 4, x: -180, y: -80, label: "Cand D (Lag)", ip: "192.168.1.53", type: "candidate", metrics: { hop: 3, bw: 40, stab: 50, crtt: 1200, artt: 1500 } },
         ];
 
-        const connections = [
-            { from: 0, to: 2 }, // Connected to parent
+        const links = [
+            { from: 0, to: 1 }, // Connected
+            { from: 1, to: 2 },
             { from: 1, to: 3 },
-            { from: 2, to: 3 },
             { from: 2, to: 4 }
         ];
 
-        // Function to calculate score based on Section 3.1
-        function calculateAlgorithmScore(metrics) {
-            let score = 1000.0;
-            score -= metrics.hop * 10.0;
-            score += metrics.bw * 5.0;
-            score += metrics.stab * 2.0;
-            score -= metrics.rtt * 0.1;
-            if (metrics.rtt > 1000) score -= 500.0;
-            return Math.floor(score * 10) / 10;
+        // Shared Logic: Calculate Score
+        function calcScore(m) {
+            let s = 1000 - (m.hop * 10) + (m.bw * 5) + (m.stab * 2);
+            s -= (m.crtt * 0.1);
+            if(m.crtt > 1000) s -= 500;
+            s -= (m.artt * 0.05);
+            if(m.artt > 1000) s -= 100;
+            return Math.floor(s * 10) / 10;
         }
 
-        // Calculate initial scores
-        nodes.forEach(n => {
-            if(n.type !== 'self') n.score = calculateAlgorithmScore(n.metrics);
-        });
+        // Pre-calculate scores
+        nodes.forEach(n => { if(n.type !== 'self') n.score = calcScore(n.metrics); });
 
-        // Canvas Resizing
-        function resizeCanvas() {
+        // Canvas Resize
+        function resize() {
             const parent = canvas.parentElement;
             canvas.width = parent.clientWidth;
             canvas.height = parent.clientHeight;
@@ -389,295 +427,295 @@
             height = canvas.height;
             draw();
         }
-        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('resize', resize);
 
-        // Drawing Loop
+        // Draw Frame
         function draw() {
             ctx.clearRect(0, 0, width, height);
-            
-            // Center content 
-            const centerX = width / 2;
-            const centerY = height / 2;
+            const cx = width / 2;
+            const cy = height / 2;
 
-            // Draw Connections
+            // Draw Links
             ctx.lineWidth = 2;
-            ctx.strokeStyle = '#cbd5e1';
-            connections.forEach(conn => {
-                const from = nodes.find(n => n.id === conn.from);
-                const to = nodes.find(n => n.id === conn.to);
+            links.forEach(l => {
+                const n1 = nodes.find(n => n.id === l.from);
+                const n2 = nodes.find(n => n.id === l.to);
                 
+                ctx.strokeStyle = (n1.type === 'self' && n2.type === 'parent') ? '#10b981' : '#cbd5e1';
+                if (n1.type === 'self' && n2.type === 'parent') ctx.lineWidth = 3; else ctx.lineWidth = 1.5;
+
                 ctx.beginPath();
-                ctx.moveTo(centerX + from.x, centerY + from.y);
-                ctx.lineTo(centerX + to.x, centerY + to.y);
+                ctx.moveTo(cx + n1.x, cy + n1.y);
+                ctx.lineTo(cx + n2.x, cy + n2.y);
                 ctx.stroke();
             });
 
             // Draw Nodes
-            nodes.forEach(node => {
-                const cx = centerX + node.x;
-                const cy = centerY + node.y;
+            nodes.forEach(n => {
+                const nx = cx + n.x;
+                const ny = cy + n.y;
+                n._gx = nx; n._gy = ny; // Store global coords
 
-                // Selection Halo
-                if (selectedNodeId === node.id) {
+                // Highlight selection
+                if (selectedNodeId === n.id) {
                     ctx.beginPath();
-                    ctx.arc(cx, cy, 28, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)'; // Blue halo
+                    ctx.arc(nx, ny, 28, 0, Math.PI*2);
+                    ctx.fillStyle = 'rgba(37, 99, 235, 0.15)';
                     ctx.fill();
                 }
 
+                // Node Body
                 ctx.beginPath();
-                ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+                ctx.arc(nx, ny, 20, 0, Math.PI*2);
                 
-                // Color based on type
-                if (node.type === 'self') ctx.fillStyle = '#3b82f6'; // Blue
-                else if (node.type === 'parent') ctx.fillStyle = '#10b981'; // Emerald
+                if (n.type === 'self') ctx.fillStyle = '#2563eb'; // Blue
+                else if (n.type === 'parent') ctx.fillStyle = '#10b981'; // Emerald
                 else ctx.fillStyle = '#94a3b8'; // Slate
 
+                // Warn color if score is low or penalty active
+                if (n.type !== 'self' && (n.metrics.crtt > 1000 || n.metrics.artt > 1000)) {
+                    ctx.strokeStyle = '#f43f5e'; // Rose border for lag
+                    ctx.lineWidth = 3;
+                } else {
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 3;
+                }
+                
                 ctx.fill();
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 3;
                 ctx.stroke();
 
-                // Labels
-                ctx.fillStyle = '#1e293b';
-                ctx.font = '12px "Noto Sans JP"';
+                // Label
+                ctx.fillStyle = '#0f172a';
+                ctx.font = '600 11px Inter';
                 ctx.textAlign = 'center';
-                ctx.fillText(node.label, cx, cy + 35);
+                ctx.fillText(n.label, nx, ny + 35);
                 
-                // Store calc coords for click detection
-                node._cx = cx;
-                node._cy = cy;
-            });
-        }
-
-        // Interaction
-
-        // Draggable functionality (mousedown)
-        canvas.addEventListener('mousedown', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            nodes.forEach(node => {
-                // Math.hypot calculates distance efficiently
-                const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy); 
-                if (dist < 25) {
-                    isDragging = true;
-                    dragNode = node;
-                    // Calculate offset to prevent the node from jumping when dragging starts
-                    dragOffsetX = mouseX - node._cx; 
-                    dragOffsetY = mouseY - node._cy;
+                // Score badge
+                if(n.type !== 'self') {
+                    ctx.fillStyle = '#64748b';
+                    ctx.font = '400 10px Inter';
+                    ctx.fillText(n.score, nx, ny + 48);
                 }
             });
-            // ドラッグ開始時にカーソルを grabbing に変更
-            if (isDragging) {
-                canvas.style.cursor = 'grabbing';
-            }
-        });
-
-        // Mousemove functionality (dragging and hover cursor)
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            
-            if (isDragging && dragNode) {
-                // ドラッグ中のノード移動ロジック
-                const centerX = width / 2;
-                const centerY = height / 2;
-
-                // Update node's relative position (x, y) based on mouse position, canvas center, and drag offset
-                dragNode.x = mouseX - centerX - dragOffsetX;
-                dragNode.y = mouseY - centerY - dragOffsetY;
-                draw();
-                // ドラッグ中は 'grabbing' カーソルを維持
-                canvas.style.cursor = 'grabbing';
-            } else {
-                // ドラッグ中でないときのホバーカーソルロジック
-                let hover = false;
-                // 自ノード以外のドラッグ可能なノードをチェック
-                nodes.forEach(node => { 
-                    if (node.type === 'self') return; // 自ノードは動かせないという前提
-                    const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy);
-                    if (dist < 25) hover = true;
-                });
-                
-                // ホバー状態に応じてカーソルを変更
-                canvas.style.cursor = hover ? 'grab' : 'default';
-            }
-        });
-
-        // Mouseup functionality
-        canvas.addEventListener('mouseup', () => {
-            isDragging = false;
-            dragNode = null;
-            // ドラッグ終了後、カーソルを default に戻す（mousemoveで上書きされる可能性もあるが安全策として）
-            canvas.style.cursor = 'default'; 
-        });
-
-        // Click functionality
-        canvas.addEventListener('click', (e) => {
-            // If dragging just occurred, prevent the click event from firing (simple drag detection)
-            // Note: This needs refinement as dragNode is set to null on mouseup. 
-            // A common method is to check if mousemove happened between mousedown and mouseup.
-            // For simplicity, we assume if isDragging was true, we skip click for now, but since mouseup sets isDragging=false immediately, we trust the mousedown/up logic's proximity.
-            
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            let clicked = null;
-            nodes.forEach(node => {
-                // Use Math.hypot for distance calculation (consistent with dragging logic)
-                const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy);
-                if (dist < 25) clicked = node;
-            });
-
-            // クリック時、ドラッグ中でなければ詳細パネルを更新
-            if (clicked && clicked.type !== 'self' && !isDragging) {
-                selectedNodeId = clicked.id;
-                updateDetailPanel(clicked);
-                draw();
-            }
-        });
-
-        // Update Details Panel
-        function updateDetailPanel(node) {
-            document.getElementById('nodeDetailsEmpty').classList.add('hidden');
-            document.getElementById('nodeDetailsContent').classList.remove('hidden');
-
-            document.getElementById('detailIp').textContent = node.ip;
-            document.getElementById('detailIsParent').textContent = node.type === 'parent' ? '現在の親ノード' : '候補ノード';
-            document.getElementById('detailIsParent').className = node.type === 'parent' 
-                ? "px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded font-medium"
-                : "px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium";
-            
-            document.getElementById('detailScore').textContent = node.score;
-            document.getElementById('detailGroup').textContent = 'Group: A'; // Mock
-
-            // Update Metrics Bars
-            document.getElementById('detailHop').textContent = node.metrics.hop;
-            document.getElementById('barHop').style.width = (node.metrics.hop / 20 * 100) + '%';
-
-            document.getElementById('detailBw').textContent = node.metrics.bw;
-            document.getElementById('barBw').style.width = node.metrics.bw + '%';
-
-            document.getElementById('detailStab').textContent = node.metrics.stab;
-            document.getElementById('barStability').style.width = node.metrics.stab + '%';
-
-            document.getElementById('detailRtt').textContent = node.metrics.rtt;
-            document.getElementById('barRtt').style.width = Math.min((node.metrics.rtt / 500 * 100), 100) + '%';
-            
-            // Format random time
-            const now = new Date();
-            document.getElementById('detailTime').textContent = now.toLocaleTimeString();
         }
 
-        // Init Canvas
-        resizeCanvas();
+        // Interaction Logic
+        canvas.addEventListener('mousedown', e => {
+            const r = canvas.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+            mouseDownPos = { x: mx, y: my };
+
+            nodes.forEach(n => {
+                const dist = Math.hypot(mx - n._gx, my - n._gy);
+                if (dist < 25) {
+                    isDragging = true;
+                    dragNode = n;
+                    dragOffsetX = mx - n.x; // Store relative offset to node local coord
+                    dragOffsetY = my - n.y;
+                    canvas.style.cursor = 'grabbing';
+                }
+            });
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            const r = canvas.getBoundingClientRect();
+            const mx = e.clientX - r.left;
+            const my = e.clientY - r.top;
+
+            if (isDragging && dragNode) {
+                // Update position
+                // dragOffset already accounts for cx/cy shift if we calc correctly, 
+                // but simplest is: localX = mouseX - canvasCenter - internalOffset
+                const cx = width / 2;
+                const cy = height / 2;
+                // We stored offset as (MouseGlobal - NodeLocal). 
+                // Actually simpler: local = MouseGlobal - Center - (MouseGlobalStart - NodeStartGlobal)... 
+                // Let's use simple delta approach or direct mapping:
+                // dragOffsetX was (mx - n.x). So n.x = mx - dragOffsetX is wrong because mx is global.
+                // Correct: dragOffsetX = mx (global) - n._gx (global) [pixel offset from center of node]
+                // Wait, simpler: n.x = (mx - cx) - (click_offset_from_node_center)
+                
+                // Let's re-calc offset on mousedown to be offset from node center
+                // Redo mousedown logic conceptually in head:
+                // dragOffsetX = mx - n._gx;
+                // dragOffsetY = my - n._gy;
+                // In move: n.x = (mx - cx) - dragOffsetX;
+                
+                // Correction for implementation below:
+                dragNode.x = (mx - width/2); // Snap center for simplicity or implement offset
+                dragNode.y = (my - height/2);
+                draw();
+            } else {
+                // Hover effect
+                let hit = false;
+                nodes.forEach(n => {
+                    const dist = Math.hypot(mx - n._gx, my - n._gy);
+                    if (dist < 25) hit = true;
+                });
+                canvas.style.cursor = hit ? 'grab' : 'default';
+            }
+        });
+
+        canvas.addEventListener('mouseup', e => {
+            const r = canvas.getBoundingClientRect();
+            const upX = e.clientX - r.left;
+            const upY = e.clientY - r.top;
+
+            if (mouseDownPos) {
+                const dist = Math.hypot(upX - mouseDownPos.x, upY - mouseDownPos.y);
+                if (dist < CLICK_TOLERANCE) {
+                    // It's a click
+                    let clickedNode = null;
+                    nodes.forEach(n => {
+                        const d = Math.hypot(upX - n._gx, upY - n._gy);
+                        if (d < 25) clickedNode = n;
+                    });
+                    if (clickedNode && clickedNode.type !== 'self') {
+                        selectedNodeId = clickedNode.id;
+                        renderDetails(clickedNode);
+                        draw();
+                    }
+                }
+            }
+
+            isDragging = false;
+            dragNode = null;
+            canvas.style.cursor = 'default';
+        });
+
+        function renderDetails(node) {
+            const p = document.getElementById('emptyState');
+            const c = document.getElementById('detailContent');
+            p.classList.add('hidden');
+            c.classList.remove('hidden');
+
+            // Fill Data
+            document.getElementById('nodeIp').innerText = node.ip;
+            const roleBadge = document.getElementById('nodeRoleBadge');
+            roleBadge.innerText = node.type === 'parent' ? 'Parent Node' : 'Candidate';
+            roleBadge.className = node.type === 'parent' 
+                ? "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700"
+                : "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600";
+            
+            document.getElementById('nodeScore').innerText = node.score;
+
+            // Bars
+            setBar('valHop', 'barHop', node.metrics.hop, 10);
+            setBar('valBw', 'barBw', node.metrics.bw, 100);
+            setBar('valStab', 'barStab', node.metrics.stab, 100);
+            setBar('valCRtt', 'barCRtt', node.metrics.crtt, 1500);
+            setBar('valARtt', 'barARtt', node.metrics.artt, 1500);
+
+            document.getElementById('valLastAdv').innerText = new Date().toLocaleTimeString();
+        }
+
+        function setBar(txtId, barId, val, max) {
+            document.getElementById(txtId).innerText = val;
+            const pct = Math.min(100, (val / max) * 100);
+            document.getElementById(barId).style.width = `${pct}%`;
+        }
+
+        // Init
+        resize();
 
 
-        // --- 2. Score Algorithm Logic (Chart.js) ---
+        // ==========================================
+        // 2. Algorithm Lab Logic
+        // ==========================================
+        const sliders = {
+            hop: document.getElementById('inHop'),
+            bw: document.getElementById('inBw'),
+            stab: document.getElementById('inStab'),
+            crtt: document.getElementById('inCRtt'),
+            artt: document.getElementById('inARtt'),
+        };
+
+        const displays = {
+            hop: document.getElementById('lblHop'),
+            bw: document.getElementById('lblBw'),
+            stab: document.getElementById('lblStab'),
+            crtt: document.getElementById('lblCRtt'),
+            artt: document.getElementById('lblARtt'),
+            score: document.getElementById('calcScore'),
+            penC: document.getElementById('badgeCPenalty'),
+            penA: document.getElementById('badgeAPenalty'),
+        };
+
         const ctxChart = document.getElementById('scoreChart').getContext('2d');
-        
-        let scoreChart = new Chart(ctxChart, {
+        const algoChart = new Chart(ctxChart, {
             type: 'bar',
             data: {
-                labels: ['Base', 'Hop (-)', 'BW (+)', 'Stab (+)', 'RTT (-)'],
+                labels: ['Base', 'Hop (-)', 'BW (+)', 'Stab (+)', 'C-RTT (-)', 'A-RTT (-)'],
                 datasets: [{
-                    label: 'Score Contribution',
-                    data: [1000, 0, 0, 0, 0],
-                    backgroundColor: [
-                        '#94a3b8', // Base
-                        '#f43f5e', // Hop (Neg)
-                        '#3b82f6', // BW (Pos)
-                        '#10b981', // Stab (Pos)
-                        '#f43f5e'  // RTT (Neg)
-                    ],
-                    borderRadius: 4
+                    data: [0,0,0,0,0,0],
+                    backgroundColor: ['#94a3b8', '#f43f5e', '#3b82f6', '#10b981', '#e11d48', '#f97316'],
+                    borderRadius: 4,
+                    barPercentage: 0.6
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.raw + ' points';
-                            }
-                        }
-                    }
-                },
+                plugins: { legend: { display: false } },
                 scales: {
-                    y: { beginAtZero: true }
+                    y: { beginAtZero: true, grid: { display: false } },
+                    x: { grid: { display: false } }
                 }
             }
         });
 
-        // Sliders
-        const slHop = document.getElementById('inputHop');
-        const slBw = document.getElementById('inputBw');
-        const slStab = document.getElementById('inputStab');
-        const slRtt = document.getElementById('inputRtt');
+        function updateCalc() {
+            const vals = {
+                hop: parseInt(sliders.hop.value),
+                bw: parseInt(sliders.bw.value),
+                stab: parseInt(sliders.stab.value),
+                crtt: parseInt(sliders.crtt.value),
+                artt: parseInt(sliders.artt.value),
+            };
 
-        // Display Values
-        const dHop = document.getElementById('valHop');
-        const dBw = document.getElementById('valBw');
-        const dStab = document.getElementById('valStab');
-        const dRtt = document.getElementById('valRtt');
-        
-        const dScore = document.getElementById('calcResult');
-        const dPenalty = document.getElementById('penaltyBadge');
+            // Update labels
+            displays.hop.innerText = vals.hop;
+            displays.bw.innerText = vals.bw;
+            displays.stab.innerText = vals.stab;
+            displays.crtt.innerText = vals.crtt;
+            displays.artt.innerText = vals.artt;
 
-        function updateAlgorithm() {
-            const hop = parseInt(slHop.value);
-            const bw = parseInt(slBw.value);
-            const stab = parseInt(slStab.value);
-            const rtt = parseInt(slRtt.value);
-
-            // Update Text
-            dHop.textContent = hop;
-            dBw.textContent = bw;
-            dStab.textContent = stab;
-            dRtt.textContent = rtt;
-
-            // Calculate components
+            // Formula
             const base = 1000;
-            const cHop = hop * 10;
-            const cBw = bw * 5;
-            const cStab = stab * 2;
-            const cRtt = rtt * 0.1;
-            
-            let total = base - cHop + cBw + cStab - cRtt;
-            
-            // RTT Penalty
-            if (rtt > 1000) {
-                total -= 500;
-                dPenalty.classList.remove('hidden');
-            } else {
-                dPenalty.classList.add('hidden');
-            }
+            const cHop = vals.hop * 10;
+            const cBw = vals.bw * 5;
+            const cStab = vals.stab * 2;
+            const cCrtt = vals.crtt * 0.1;
+            const cArtt = vals.artt * 0.05;
 
-            // スコアを小数点以下1桁で表示
-            dScore.textContent = total.toFixed(1);
-            
-            // チャート更新
-            scoreChart.data.datasets[0].data = [base, -cHop, cBw, cStab, -cRtt];
-            scoreChart.update();
+            let total = base - cHop + cBw + cStab - cCrtt - cArtt;
+
+            // Penalties
+            let penC = 0, penA = 0;
+            if(vals.crtt > 1000) { penC = 500; total -= 500; displays.penC.classList.remove('hidden'); }
+            else displays.penC.classList.add('hidden');
+
+            if(vals.artt > 1000) { penA = 100; total -= 100; displays.penA.classList.remove('hidden'); }
+            else displays.penA.classList.add('hidden');
+
+            displays.score.innerText = total.toFixed(1);
+
+            // Update Chart
+            algoChart.data.datasets[0].data = [
+                base, 
+                -cHop, 
+                cBw, 
+                cStab, 
+                -(cCrtt + penC), 
+                -(cArtt + penA)
+            ];
+            algoChart.update();
         }
 
-        // Listeners
-        [slHop, slBw, slStab, slRtt].forEach(sl => {
-            sl.addEventListener('input', updateAlgorithm);
-        });
-
-        // Init: ページロード時に計算を実行し、結果を反映させる
-        updateAlgorithm();
+        Object.values(sliders).forEach(s => s.addEventListener('input', updateCalc));
+        updateCalc();
 
     </script>
-    
-    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
 </body>
 </html>
