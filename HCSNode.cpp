@@ -1,10 +1,13 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <chrono>
 #include <boost/asio.hpp>
 #include "HCSNode.h"
+#include "hcs_net/TransportAES256.h" // KeyProviderの実装用
 
 using namespace hcs;
+using namespace hcs_net; // KeyProviderのため
 
 /**
  * @brief HCSNodeのメイン実行関数。
@@ -22,23 +25,37 @@ int main() {
             io_context.stop();
         });
 
-        // 1. ノードのインスタンス化
-        // メディアポート: 8000 (QUIC/UDP)
-        // 制御ポート: 8001 (UDP)
-        unsigned short media_port = 8000;
-        unsigned short control_port = 8001;
+        // 1. ノードの設定
+        std::string self_id = "Node_A123";
+        std::string local_addr = "::1"; // IPv6ループバックアドレス
+        uint16_t media_port = 8000;
         
-        std::shared_ptr<HCSNode> node = std::make_shared<HCSNode>(
-            io_context, media_port, control_port
+        // 2. マスター鍵プロバイダの準備 (ダミー)
+        // 実際には鍵管理サービスから取得する
+        std::shared_ptr<KeyProvider> key_provider = std::make_shared<KeyProvider>(
+            // ダミーの32バイトマスターキーとソルト
+            std::vector<uint8_t>(32, 0xAA),
+            std::vector<uint8_t>(16, 0xBB) 
         );
 
-        // 2. ノードの起動
-        node->Start();
-        
-        std::cout << "\n[Main] HCSNode is running. Press Ctrl+C to stop.\n";
+        // 3. HCSNodeのインスタンス化
+        // HCSNode(io_context, self_node_id, local_addr, local_port) に合わせる
+        std::shared_ptr<HCSNode> node = std::make_shared<HCSNode>(
+            io_context, 
+            self_id, 
+            local_addr, 
+            media_port
+        );
 
-        // 3. I/Oコンテキストの実行 (イベントループ開始)
-        // ここで制御トランスポートとメディアトランスポートの非同期受信が実行される
+        // 4. ノードの起動
+        // Start(key_provider) に合わせる
+        node->Start(key_provider);
+        
+        std::cout << "\n[Main] HCSNode (" << self_id << ") is running on [" 
+                  << local_addr << "]:" << media_port << ". Press Ctrl+C to stop.\n";
+
+        // 5. I/Oコンテキストの実行 (イベントループ開始)
+        // ノードの動作は、このスレッド内で非同期的に実行される
         std::thread io_thread([&io_context]() {
             boost::system::error_code ec;
             io_context.run(ec);
@@ -47,30 +64,28 @@ int main() {
             }
         });
         
-        // 4. シミュレーション: 制御メッセージの受信をシミュレート
-        // 実際には外部ノードから8001ポートにUDPパケットが届く
-        io_context.post([&node, &io_context]() {
-            std::cout << "\n[Simulation] Simulating incoming control ADVERTISE message in 2 seconds...\n";
-            
-            // 2秒後に実行されるタイマー
-            std::make_shared<boost::asio::steady_timer>(io_context, std::chrono::seconds(2))->async_wait(
-                [&node](const boost::system::error_code& ec) {
+        // --- 簡易シミュレーション (オプション) ---
+        // メディアストリームの開始シミュレーションを、io_contextのpostで遅延実行
+        io_context.post([&io_context, node_ptr = node]() {
+            // 3秒後にStreamEncoderがストリーム送信を開始するのをシミュレート
+            std::make_shared<boost::asio::steady_timer>(io_context, std::chrono::seconds(3))->async_wait(
+                [node_ptr](const boost::system::error_code& ec) {
                     if (ec) return;
+                    std::cout << "\n[Simulation] 3s elapsed. Node is starting to PUBLISH and RECEIVE media.\n";
+                    // 実際にはTopologyManagerが最適なピアを選択した後、Encoderが起動する
+                    // ここではHCSNodeの内部ロジックがそれを処理すると仮定
                     
-                    // ダミーのADVERTISEメッセージデータを作成 (MSG_TYPE_ADVERTISE = 1)
-                    std::vector<uint8_t> dummy_adv_message = {MSG_TYPE_ADVERTISE, 0x00, 0x00};
-                    hcs_net::Endpoint sender_ep = {"10.0.0.5", 8001};
-
-                    // HCSNodeの受信ハンドラを直接呼び出すことで受信をシミュレート
-                    node->HandleControlMessage(dummy_adv_message, sender_ep);
+                    // TODO: HCSNode::SelectAndStartStream() のロジックが実行される
                 }
             );
         });
+        // ----------------------------------------
 
         // スレッドの終了を待機
         io_thread.join();
 
-        // 5. ノードの停止 (I/Oコンテキスト停止後に実行される)
+        // 6. ノードの停止 (I/Oコンテキスト停止後に実行される)
+        // ノードが停止されたことを確認
         node->Stop();
         
         std::cout << "[Main] HCSNode stopped successfully.\n";
