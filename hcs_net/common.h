@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <functional> // std::function を使用
 
 /**
  * @namespace hcs_net
@@ -23,7 +24,29 @@ struct Endpoint {
      */
     Endpoint(const std::string& addr, uint16_t p) : address(addr), port(p) {}
     
-    // 他の比較演算子やハッシュ関数などを追加可能
+    // --- 比較演算子の追加 (ユーザー要求による) ---
+
+    /**
+     * @brief 等価比較演算子
+     */
+    bool operator==(const Endpoint& other) const {
+        return address == other.address && port == other.port;
+    }
+
+    /**
+     * @brief 非等価比較演算子
+     */
+    bool operator!=(const Endpoint& other) const {
+        return !(*this == other);
+    }
+
+    /**
+     * @brief 順序比較演算子 (std::map/std::setのキーとして使用可能にするため)
+     */
+    bool operator<(const Endpoint& other) const {
+        // まずアドレスで比較し、アドレスが同じ場合はポートで比較する
+        return address < other.address || (address == other.address && port < other.port);
+    }
 };
 
 /**
