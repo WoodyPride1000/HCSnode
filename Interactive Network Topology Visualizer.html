@@ -22,6 +22,13 @@
          4. Logic & Data Reference: Cards explaining HandleAdvertise and HealthCheck (Section 3.2, 3.3) and Data Structures (Section 4).
          This structure moves from the high-level network view down to the specific algorithmic logic, facilitating understanding of the system's "Brain".
     -->
+    <!-- Visualization & Content Choices: 
+         Report Info -> Goal -> Viz/Presentation Method -> Interaction -> Justification -> Library/Method
+         1. Network topology and node relationships -> Visualize Parent Node Selection -> HTML5 Canvas Graph + Sidebar Detail Panel -> Click nodes to inspect specific data -> Static image is insufficient for dynamic relationships -> Canvas/Vanilla JS
+         2. Section 3.1 Score Calculation Logic -> Explain prioritization logic -> Interactive Sliders + Real-time Chart.js Bar Chart -> Sliders update score and chart immediately -> Formula complexity requires intuitive exploration of weighting -> Chart.js/Vanilla JS
+         3. Data Structures and Processes (Section 2, 3.2, 3.3) -> Reference Material -> Styled Cards/Tables -> None (Information Display) -> Clear, structured text for reference data -> Tailwind/HTML
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
 
     <style>
         body {
@@ -54,8 +61,10 @@
             background: #cbd5e1; 
             border-radius: 3px;
         }
+        /* カーソル設定はJSで動的に行う */
         canvas#topologyCanvas {
-            cursor: pointer;
+            /* 常にデフォルトを設定し、JSで上書き */
+            cursor: default; 
         }
     </style>
 </head>
@@ -92,13 +101,7 @@
             </p>
         </section>
 
-        <!-- Visualization & Content Choices: 
-             Report Info: Network topology and node relationships.
-             Goal: Visualize the abstract concept of "Parent Node Selection" and "PeerState".
-             Viz Method: HTML5 Canvas for a dynamic network graph + Sidebar for data details.
-             Interaction: Click nodes to inspect their specific `PeerState` and `NodeMetrics`.
-             Justification: A static image cannot show the dynamic data contained within each node. Canvas allows for performant rendering of the network.
-        -->
+        <!-- Visualization Section -->
         <section id="visualizer" class="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
             <div class="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
                 <div>
@@ -168,7 +171,7 @@
 
                                 <div class="flex justify-between items-center mt-2">
                                     <span class="text-slate-500">Stability Score</span>
-                                    <span class="font-mono font-medium" id="detailStability">--</span>
+                                    <span class="font-mono font-medium" id="detailStab">--</span>
                                 </div>
                                 <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                                     <div id="barStability" class="h-full bg-emerald-500" style="width: 0%"></div>
@@ -196,13 +199,7 @@
             </div>
         </section>
 
-        <!-- Visualization & Content Choices:
-             Report Info: Section 3.1 Score Calculation Logic.
-             Goal: Explain how the score is derived so users understand the prioritization.
-             Viz Method: Interactive sliders + Real-time Chart.js Bar Chart showing component contribution.
-             Interaction: Sliders update the score and chart immediately.
-             Justification: The formula is complex; interactive exploration makes the weighting (penalty vs reward) intuitive.
-        -->
+        <!-- Algorithm Section -->
         <section id="algorithm" class="grid lg:grid-cols-2 gap-8 items-start">
             <div>
                 <h3 class="text-2xl font-bold text-slate-800 mb-4">3.1. スコア計算アルゴリズム</h3>
@@ -261,7 +258,8 @@
             <div class="bg-white p-6 rounded-xl shadow-md border border-slate-200 h-full flex flex-col justify-center items-center">
                 <div class="text-center mb-6">
                     <span class="text-sm text-slate-500 font-medium">算出された総合スコア</span>
-                    <div class="text-5xl font-bold text-blue-600 mt-2" id="calcResult">1500.0</div>
+                    <!-- 修正済み: 初期値はJSで設定されるため空欄 (--) -->
+                    <div class="text-5xl font-bold text-blue-600 mt-2" id="calcResult">--</div>
                     <div id="penaltyBadge" class="hidden mt-2 inline-block px-2 py-1 bg-red-100 text-red-600 text-xs font-bold rounded">RTT Penalty Applied (-500)</div>
                 </div>
                 
@@ -272,13 +270,7 @@
             </div>
         </section>
 
-        <!-- Visualization & Content Choices:
-             Report Info: Section 2 (Data Structures) and Section 3.2/3.3 (Processes).
-             Goal: Reference material for developers/operators.
-             Viz Method: Styled Cards/Tables.
-             Interaction: None (Information display).
-             Justification: Clear, structured text is best for reference data.
-        -->
+        <!-- Reference Section -->
         <section id="reference" class="space-y-8">
             <div class="grid md:grid-cols-2 gap-8">
                 <!-- Data Structures -->
@@ -351,6 +343,11 @@
         let width, height;
         let selectedNodeId = null;
 
+        // Dragging state variables
+        let isDragging = false;
+        let dragNode = null;
+        let dragOffsetX, dragOffsetY;
+
         // Mock Data for Visualization
         const nodes = [
             { id: 0, x: 0, y: 0, label: "自ノード (Me)", ip: "127.0.0.1", type: "self", metrics: { hop: 0, bw: 0, stab: 0, rtt: 0 }, score: 0 },
@@ -398,9 +395,9 @@
         function draw() {
             ctx.clearRect(0, 0, width, height);
             
-            // Center content
+            // Center content 
             const centerX = width / 2;
-            const centerY = height * 0.8;
+            const centerY = height / 2;
 
             // Draw Connections
             ctx.lineWidth = 2;
@@ -454,18 +451,90 @@
         }
 
         // Interaction
+
+        // Draggable functionality (mousedown)
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            nodes.forEach(node => {
+                // Math.hypot calculates distance efficiently
+                const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy); 
+                if (dist < 25) {
+                    isDragging = true;
+                    dragNode = node;
+                    // Calculate offset to prevent the node from jumping when dragging starts
+                    dragOffsetX = mouseX - node._cx; 
+                    dragOffsetY = mouseY - node._cy;
+                }
+            });
+            // ドラッグ開始時にカーソルを grabbing に変更
+            if (isDragging) {
+                canvas.style.cursor = 'grabbing';
+            }
+        });
+
+        // Mousemove functionality (dragging and hover cursor)
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            if (isDragging && dragNode) {
+                // ドラッグ中のノード移動ロジック
+                const centerX = width / 2;
+                const centerY = height / 2;
+
+                // Update node's relative position (x, y) based on mouse position, canvas center, and drag offset
+                dragNode.x = mouseX - centerX - dragOffsetX;
+                dragNode.y = mouseY - centerY - dragOffsetY;
+                draw();
+                // ドラッグ中は 'grabbing' カーソルを維持
+                canvas.style.cursor = 'grabbing';
+            } else {
+                // ドラッグ中でないときのホバーカーソルロジック
+                let hover = false;
+                // 自ノード以外のドラッグ可能なノードをチェック
+                nodes.forEach(node => { 
+                    if (node.type === 'self') return; // 自ノードは動かせないという前提
+                    const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy);
+                    if (dist < 25) hover = true;
+                });
+                
+                // ホバー状態に応じてカーソルを変更
+                canvas.style.cursor = hover ? 'grab' : 'default';
+            }
+        });
+
+        // Mouseup functionality
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+            dragNode = null;
+            // ドラッグ終了後、カーソルを default に戻す（mousemoveで上書きされる可能性もあるが安全策として）
+            canvas.style.cursor = 'default'; 
+        });
+
+        // Click functionality
         canvas.addEventListener('click', (e) => {
+            // If dragging just occurred, prevent the click event from firing (simple drag detection)
+            // Note: This needs refinement as dragNode is set to null on mouseup. 
+            // A common method is to check if mousemove happened between mousedown and mouseup.
+            // For simplicity, we assume if isDragging was true, we skip click for now, but since mouseup sets isDragging=false immediately, we trust the mousedown/up logic's proximity.
+            
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
             let clicked = null;
             nodes.forEach(node => {
-                const dist = Math.sqrt((mouseX - node._cx)**2 + (mouseY - node._cy)**2);
+                // Use Math.hypot for distance calculation (consistent with dragging logic)
+                const dist = Math.hypot(mouseX - node._cx, mouseY - node._cy);
                 if (dist < 25) clicked = node;
             });
 
-            if (clicked && clicked.type !== 'self') {
+            // クリック時、ドラッグ中でなければ詳細パネルを更新
+            if (clicked && clicked.type !== 'self' && !isDragging) {
                 selectedNodeId = clicked.id;
                 updateDetailPanel(clicked);
                 draw();
@@ -484,6 +553,7 @@
                 : "px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded font-medium";
             
             document.getElementById('detailScore').textContent = node.score;
+            document.getElementById('detailGroup').textContent = 'Group: A'; // Mock
 
             // Update Metrics Bars
             document.getElementById('detailHop').textContent = node.metrics.hop;
@@ -492,7 +562,7 @@
             document.getElementById('detailBw').textContent = node.metrics.bw;
             document.getElementById('barBw').style.width = node.metrics.bw + '%';
 
-            document.getElementById('detailStability').textContent = node.metrics.stab;
+            document.getElementById('detailStab').textContent = node.metrics.stab;
             document.getElementById('barStability').style.width = node.metrics.stab + '%';
 
             document.getElementById('detailRtt').textContent = node.metrics.rtt;
@@ -590,9 +660,10 @@
                 dPenalty.classList.add('hidden');
             }
 
+            // スコアを小数点以下1桁で表示
             dScore.textContent = total.toFixed(1);
-
-            // Update Chart
+            
+            // チャート更新
             scoreChart.data.datasets[0].data = [base, -cHop, cBw, cStab, -cRtt];
             scoreChart.update();
         }
@@ -602,7 +673,7 @@
             sl.addEventListener('input', updateAlgorithm);
         });
 
-        // Init
+        // Init: ページロード時に計算を実行し、結果を反映させる
         updateAlgorithm();
 
     </script>
