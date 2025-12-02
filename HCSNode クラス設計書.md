@@ -171,7 +171,3 @@ Send()時のエラー（例：経路なし）は、std::error_codeを介して�
 HCSNodeは、shared_secretとsaltから導出された鍵を内部のKeyProviderに保持します。鍵は外部から取得不可能であり、機密性を維持します。
 
 
-HCSNodeの役割
-ファイル名	役割 / 定義クラス	詳細
-HCSNode.h	HCSNode クラス宣言	HCSの公開API。通信層全体を単一のエンティティとしてカプセル化し、ユーザーコードにシンプルなインターフェース（Start(), Send(), SetHandler()）を提供します。
-HCSNode.cpp	HCSNode 実装	内部で KeyProvider、TransportAES256、UdpTransport のインスタンスを管理し、それらのライフサイクルを制御します。受信データハンドラーを安全に呼び出す処理も担当します。
