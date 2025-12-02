@@ -1,167 +1,161 @@
-#pragma once
-
-#include <map>
-#include <set>
-#include <string>
-#include <chrono>
+#include "hcs_media/StreamDecoder.h"
+#include <iostream>
+#include <boost/asio.hpp>
 #include <vector>
 #include <memory>
-#include <iostream>
+#include <algorithm>
 
-namespace hcs_control {
+// 依存するインターフェースのプロトタイプ（実際はヘッダーファイルに存在する）
+namespace hcs_net {
+    struct Endpoint {
+        std::string address;
+        uint16_t port;
+    };
 
-/**
- * @brief ノードの品質と経路を評価するためのメトリクス構造体。
- */
-struct NodeMetrics {
-    int hop_count = 0;        // 親ノードまでのホップ数 (少ない方が良い)
-    int bandwidth_score = 0;  // 帯域幅の品質スコア (高い方が良い)
-    int stability_score = 0;  // 安定性/稼働時間のスコア (高い方が良い)
-    long long rtt_ms = 9999;  // ラウンドトリップタイム (ms) (低い方が良い)
-};
+    // IMediaTransportは、暗号化/復号化されたパケットの送受信を抽象化
+    class IMediaTransport {
+    public:
+        virtual ~IMediaTransport() = default;
+        // 非同期受信のインターフェース
+        virtual void AsyncReceiveFrom(
+            std::vector<uint8_t>& buffer,
+            Endpoint& sender_endpoint,
+            std::function<void(const boost::system::error_code&, std::size_t)> handler
+        ) = 0;
+        // 実際にはもっと多くのインターフェースがある
+    };
+}
 
-/**
- * @brief 近隣ノードの現在の状態を保持する構造体。
- */
-struct PeerState {
-    NodeMetrics metrics;
-    std::string ip_address;
-    std::chrono::steady_clock::time_point last_advertise_time; // 最終受信時刻
-    double score = -1.0;                                     // 計算されたノードスコア
-    bool is_parent = false;                                  // 現在の親ノードであるか
-    std::set<std::string> groups;                             // 所属グループID
-};
-
-/**
- * @brief ピアディスカバリおよびステータス交換のためのADVERTISEメッセージ構造体。
- */
-struct AdvertiseMessage {
-    std::string ip;
-    NodeMetrics metrics;
-    std::set<std::string> groups;
-};
+namespace hcs_media {
 
 /**
- * @brief トポロジーマネージャ本体
- * ノード間のピアディスカバリ、親ノード選定、およびヘルスチェックのロジックを管理する。
+ * @brief RTPパケットからペイロードとヘッダー情報を抽出する (疑似)
+ * @param rtp_packet 受信したRTPパケットデータ
+ * @param payload_offset RTPヘッダーサイズ（ここでは固定12バイトとする）
+ * @return RTPペイロードへのポインタ
  */
-class TopologyManager {
-public:
-    TopologyManager() = default;
+const uint8_t* ParseRtpHeader(const std::vector<uint8_t>& rtp_packet, size_t& payload_offset) {
+    if (rtp_packet.size() < 12) {
+        // パケットがRTPヘッダーの最小長に満たない
+        return nullptr;
+    }
 
-    /**
-     * @brief マネージャを起動し、定期的な処理（タイマー）を開始する。
-     */
-    void Start() {
-        // TODO: 定期的なADVERTISE送信やHEARTBEATチェックタイマーを設定
-        std::cout << "[TopologyManager] Started. Failover timeout set to " 
-                << failover_timeout_sec_ << "s.\n";
-    }
+    // 実際のロジックでは、V, P, X, CC, M, PT, SeqNum, Timestamp, SSRCなどを解析する
+    uint8_t version = (rtp_packet[0] >> 6) & 0x03; // バージョン (期待値: 2)
+    uint8_t payload_type = rtp_packet[1] & 0x7F; // ペイロードタイプ (例: 96)
 
-    /**
-     * @brief ADVERTISEメッセージを受信し、近隣ノードの状態を更新する。
-     * @param msg 受信したADVERTISEメッセージ
-     */
-    void HandleAdvertise(const AdvertiseMessage& msg) {
-        auto now = std::chrono::steady_clock::now();
-        auto& peer = neighbor_nodes_[msg.ip];
-        peer.ip_address = msg.ip;
-        peer.metrics = msg.metrics;
-        peer.last_advertise_time = now;
-        peer.groups = msg.groups;
+    // ここでは簡易的にRTPヘッダーを12バイトとして固定
+    payload_offset = 12;
 
-        // グループごとにスコア計算し、最良ノードを更新
-        for (const auto& gid : msg.groups) {
-            double score = ComputeNodeScore(msg.metrics);
-            
-            // スコアが更新された場合のみ記録
-            if (score > best_scores_[gid].score) {
-                best_scores_[gid].score = score;
-                best_scores_[gid].parent_ip = msg.ip;
-            }
-        }
-    }
+    std::cout << "[Decoder] RTP Packet received. Version: " << (int)version
+              << ", PT: " << (int)payload_type << std::endl;
 
-    /**
-     * @brief HEARTBEAT（生存確認）メッセージを受信し、最終受信時刻を更新する。
-     * @param ip 送信元IPアドレス
-     * @param group_id グループID (現在はIPで管理)
-     */
-    void HandleHeartbeat(const std::string& ip, const std::string& group_id) {
-        auto it = neighbor_nodes_.find(ip);
-        if (it != neighbor_nodes_.end()) {
-            it->second.last_advertise_time = std::chrono::steady_clock::now();
-        }
-    }
+    return rtp_packet.data() + payload_offset;
+}
 
-    /**
-     * @brief 指定されたグループIDの現在の最良親ノードのIPアドレスを返す。
-     * @param group_id グループID
-     * @return 最良親ノードのIPアドレス、見つからない場合は空文字列
-     */
-    std::string SelectBestParent(const std::string& group_id) {
-        auto it = best_scores_.find(group_id);
-        if (it != best_scores_.end()) return it->second.parent_ip;
-        return "";
-    }
+// =========================================================================
 
-    /**
-     * @brief 現在の親ノードの生存状態をチェックし、タイムアウトした場合は選定をリセットする。
-     * @param group_id チェック対象のグループID
-     */
-    void CheckParentHealth(const std::string& group_id) {
-        auto parent_ip = SelectBestParent(group_id);
-        if (parent_ip.empty()) return;
+StreamDecoder::StreamDecoder(
+    boost::asio::io_context& io_context,
+    std::shared_ptr<hcs_net::IMediaTransport> transport,
+    const std::string& group_id
+)
+: io_context_(io_context),
+  transport_(std::move(transport)),
+  group_id_(group_id),
+  // 受信バッファを最大MTU + 制御オーバーヘッド（例：2048バイト）で初期化
+  receive_buffer_(2048)
+{
+    std::cout << "[Decoder] Initialized for group: " << group_id_ << std::endl;
+    // FFmpeg/Libde265 デコーダコンテキストの初期化ロジックはここに入る
+}
 
-        auto it = neighbor_nodes_.find(parent_ip);
-        if (it == neighbor_nodes_.end()) return;
+StreamDecoder::~StreamDecoder() {
+    Stop();
+}
 
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            now - it->second.last_advertise_time).count();
+void StreamDecoder::StartReceiving() {
+    std::cout << "[Decoder] Starting continuous receive loop." << std::endl;
+    // 最初の非同期受信オペレーションを開始
+    ScheduleReceive();
+}
 
-        if (elapsed > failover_timeout_sec_) {
-            std::cout << "[TopologyManager] Parent " << parent_ip
-                      << " for group " << group_id << " is considered down (Timeout: "
-                      << elapsed << "s).\n";
-            // 親フラグのリセットとスコアの削除
-            it->second.is_parent = false;
-            best_scores_.erase(group_id);
-            
-            // TODO: HCSNodeに対して親変更の必要性を通知するコールバックを呼び出す
-        }
-    }
+void StreamDecoder::Stop() {
+    std::cout << "[Decoder] Stopping decoder and cancelling transport receives." << std::endl;
+    // トランスポート層に対して、このデコーダに関連する保留中の受信処理をキャンセルするよう依頼する
+    // transport_->CancelReceives(this); // 実際にはキャンセルロジックが必要
+}
 
-private:
-    /**
-     * @brief グループごとの最良ノードを追跡するための構造体。
-     */
-    struct BestScore {
-        double score = -1.0;
-        std::string parent_ip;
-    };
+void StreamDecoder::ScheduleReceive() {
+    auto self = shared_from_this();
 
-    std::map<std::string, PeerState> neighbor_nodes_; // IPアドレス -> PeerState
-    std::map<std::string, BestScore> best_scores_;    // GroupID -> BestScore
+    // 1. トランスポート層に非同期受信を依頼
+    // transport_->AsyncReceiveFrom のコールバック内で、自身 (self) を保持
+    transport_->AsyncReceiveFrom(
+        receive_buffer_,
+        sender_endpoint_, // 受信元エンドポイント
+        [self](const boost::system::error_code& ec, std::size_t bytes_received) {
+            self->HandleReceive(ec, bytes_received);
+        }
+    );
+}
 
-    int failover_timeout_sec_ = 5; // HEARTBEAT タイムアウト時間 (秒)
+// 受信処理のメインコールバック
+void StreamDecoder::HandleReceive(const boost::system::error_code& ec, std::size_t bytes_received) {
+    if (ec == boost::asio::error::operation_aborted) {
+        // Stop() によってキャンセルされた
+        return;
+    }
+    if (ec) {
+        std::cerr << "[Decoder] Receive error: " << ec.message() << std::endl;
+        // エラー後も復帰を試みるため、再スケジュール
+        ScheduleReceive(); 
+        return;
+    }
+    
+    // 1. 受信データの復号化と検証
+    // IMediaTransport層で既にAES-GCMによる復号化と認証タグの検証が行われていると想定。
+    // bytes_received は復号化されたペイロードのサイズ。
 
-    /**
-     * @brief 複数のメトリクスに基づき、ノードの総合評価スコアを計算する。
-     * @param metrics 評価対象のノードメトリクス
-     * @return 計算されたスコア (高いほど優秀)
-     */
-    double ComputeNodeScore(const NodeMetrics& metrics) const {
-        // スコア計算式 (調整可能):
-        // (低くあるべき) hop_count は減点、rtt_ms も減点
-        // (高くあるべき) bandwidth_score, stability_score は加点
-        double score = 1000.0 // ベーススコア
-                       - metrics.hop_count * 10.0
-                       + metrics.bandwidth_score * 5.0
-                       + metrics.stability_score * 2.0
-                       - metrics.rtt_ms * 0.1;
-        return score;
-    }
-};
+    if (bytes_received > 0) {
+        // 2. RTPパケットの処理とデコーダへの投入
+        ProcessReceivedPacket(bytes_received);
+    }
 
-} // namespace hcs_control
+    // 3. 次のパケット受信をスケジュール
+    ScheduleReceive();
+}
+
+void StreamDecoder::ProcessReceivedPacket(std::size_t bytes_received) {
+    // 受信したデータサイズに合わせてバッファを調整
+    std::vector<uint8_t> received_packet(
+        receive_buffer_.begin(), 
+        receive_buffer_.begin() + bytes_received
+    );
+
+    size_t payload_offset = 0;
+    
+    // 1. RTPヘッダー解析
+    const uint8_t* rtp_payload = ParseRtpHeader(received_packet, payload_offset);
+
+    if (rtp_payload) {
+        // ペイロードデータサイズ
+        size_t payload_size = bytes_received - payload_offset;
+
+        std::cout << "[Decoder] Decrypted and parsed RTP. Payload size: " 
+                  << payload_size << " bytes from " << sender_endpoint_.address << std::endl;
+
+        // 2. 【FFmpeg/デコーダ連携箇所】
+        // デコーダにペイロードを投入
+        // 例: avcodec_send_packet()
+        // 通常は、バッファリング、ジッタバッファ管理、RTPシーケンス番号チェックなどがここに入る。
+        // DecodePacket(rtp_payload, payload_size);
+        
+        // 3. デコーダから出力されたフレーム (AVFrame) をレンダラーなどに渡す処理
+        // HandleDecodedFrame(...);
+    } else {
+        std::cerr << "[Decoder] Error: Invalid RTP packet size or content." << std::endl;
+    }
+}
+
+} // namespace hcs_media
