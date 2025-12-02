@@ -1,5 +1,9 @@
 HCSNode クラス設計書
 
+
+
+
+
 1. 概要 (Overview)
 
 HCSNodeクラスは、Hybrid Communication System (HCS) のセキュアなP2P通信機能を提供する最上位の公開APIです。本クラスは、トランスポート層（UDP）、鍵管理層（PBKDF2）、およびセキュリティ層（AES-256-GCM）の各コンポーネントを統合し、ユーザーアプリケーションに対してシンプルで安全なデータグラム通信インターフェースを提供します。
@@ -165,3 +169,9 @@ Send()時のエラー（例：経路なし）は、std::error_codeを介して�
 5.3. 鍵管理
 
 HCSNodeは、shared_secretとsaltから導出された鍵を内部のKeyProviderに保持します。鍵は外部から取得不可能であり、機密性を維持します。
+
+
+HCSNodeの役割
+ファイル名	役割 / 定義クラス	詳細
+HCSNode.h	HCSNode クラス宣言	HCSの公開API。通信層全体を単一のエンティティとしてカプセル化し、ユーザーコードにシンプルなインターフェース（Start(), Send(), SetHandler()）を提供します。
+HCSNode.cpp	HCSNode 実装	内部で KeyProvider、TransportAES256、UdpTransport のインスタンスを管理し、それらのライフサイクルを制御します。受信データハンドラーを安全に呼び出す処理も担当します。
